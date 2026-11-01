@@ -14,8 +14,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: python -m pip install -c constraints.txt -e ".[dev]"
-      - run: python -m ruff check src tests
-      - run: python -m ruff format --check src tests
+      - run: python -m ruff check src tests scripts
+      - run: python -m ruff format --check src tests scripts
       - run: python -m pytest --cov=productpulse --cov-report=term-missing -q
       - run: productpulse --database sqlite:///ci-demo.db demo --users 80 --weeks 6
   postgres:
@@ -59,7 +59,7 @@ jobs:
       - name: Проверить HTTP и ресурсы контейнера
         run: |
           docker compose up -d app
-          curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:8010/api/health > health.json
+          python scripts/wait_for_health.py > health.json
           curl --fail --silent --show-error 'http://127.0.0.1:8010/api/report?start=2026-01-05&end=2026-03-02&as_of=2026-03-09T00:00:00Z' > report.json
           python -c "import json; assert json.load(open('health.json'))['status']=='ok'; assert json.load(open('report.json'))['metrics']['net_cents']==6027200"
           for path in / /static/app.js /static/styles.css /docs /openapi.json; do
