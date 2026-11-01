@@ -1,0 +1,3 @@
+{"event_id":"late-viewed","event_type":"viewed","occurred_at":"2026-01-05T10:00:00Z","user_id":"demo-user","session_id":"demo-session","rental_id":"demo-rental","channel":"organic","category":"camera"}
+{"event_id":"late-quoted","event_type":"quoted","occurred_at":"2026-01-05T10:01:00Z","user_id":"demo-user","session_id":"demo-session","rental_id":"demo-rental","channel":"organic","category":"camera"}
+{"event_id":"late-reserved","event_type":"reserved","occurred_at":"2026-01-05T10:02:00Z","user_id":"demo-user","session_id":"demo-session","rental_id":"demo-rental","channel":"organic","category":"camera"}

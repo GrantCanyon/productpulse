@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: local_demo_only
+      POSTGRES_DB: pulse
+    volumes:
+      - pulse_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulse -d pulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  app:
+    build: .
+    environment:
+      PRODUCTPULSE_DATABASE_URL: postgresql+psycopg://pulse:local_demo_only@db:5432/pulse
+    ports:
+      - "127.0.0.1:8010:8010"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  pulse_data:
