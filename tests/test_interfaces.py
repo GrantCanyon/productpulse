@@ -132,3 +132,29 @@ def test_cli_help_and_parser_errors_are_russian(capsys):
     message = capsys.readouterr().err
     assert "целое число" in message
     assert "invalid int value" not in message
+
+
+def test_http_revision_explains_payment_from_canonical_receipts(store):
+    entries = journey()
+    store.ingest(
+        [json.dumps(e) for e in entries], source="тест", received_at="2026-01-08T00:00:00Z"
+    )
+    with TestClient(create_app(store)) as client:
+        response = client.get(
+            "/api/compare",
+            params={
+                "start": "2026-01-01",
+                "end": "2026-02-01",
+                "before": "2026-01-07T00:00:00Z",
+                "after": "2026-01-09T00:00:00Z",
+            },
+        )
+        assert response.status_code == 200
+        revision = response.json()["revision"]
+        assert revision["ledger_delta"]["net_cents"] == 10000
+        row = revision["ledger_changes"][0]
+        assert row["reason"] == "new_delivery"
+        assert row["before"] is None
+        assert len(row["after"]["source_refs"]) == 4
+        receipt = client.get("/api/receipts", params={"event_id": row["event_id"]}).json()
+        assert receipt["items"][0]["id"] == row["after"]["receipt_id"]

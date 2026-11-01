@@ -1,20 +1,270 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ProductPulse · История за цифрами</title><link rel="stylesheet" href="/static/styles.css"><script src="/static/app.js" defer></script></head>
-<body>
-<aside class="sidebar"><a class="brand" href="#overview"><span class="brand-icon">p<span>•</span></span><span>Product<span class="brand-light">Pulse</span></span></a><div class="workspace"><span class="workspace-icon">↗</span><div>Лаборатория аренды<small>Синтетический набор данных</small></div></div><div class="nav-label">РАБОЧАЯ ОБЛАСТЬ</div><nav aria-label="Разделы"><a href="#overview" class="active">◫ <span>Обзор показателей</span></a><a href="#revisions">⇄ <span>Изменения снимка</span></a><a href="#journey">▤ <span>Путь и удержание</span></a><a href="#quality">◇ <span>Качество данных</span><span id="quality-badge" class="badge">—</span></a><a href="#ledger">≡ <span>Журнал операций</span></a></nav><div class="sidebar-bottom"><div class="live-dot"></div><strong>Проверяемые цифры</strong><p>Каждый показатель связан<br>с исходными событиями.</p><a href="/docs" target="_blank" rel="noopener">Справочник API ↗</a><span class="version">ПОЛИТИКА rental-v1</span></div></aside>
-<main>
-<header class="topbar"><span>Рабочая область <span class="divider">/</span> <strong>Аналитика аренды</strong></span><span class="synthetic"><i></i> Только синтетические данные</span></header>
-<section id="overview" class="page-heading"><div><div class="eyebrow">НЕ ПРОСТО ЧИСЛА. ИСТОРИЯ ИЗМЕНЕНИЙ.</div><h1>Проверяемая аналитика аренды</h1><p>Путь клиента, стоимость бронирований и источники каждого изменения.</p></div><button id="export" class="button secondary" title="CSV пересчитывается по применённым фильтрам. Новые доставки могут изменить результат.">↓ Журнал CSV</button></section>
-<form id="filters" class="filter-panel"><div class="filter-caption"><strong>Период событий</strong><span>Все даты и время — UTC</span></div><div class="filter-fields"><label>С даты<input id="start" type="date" value="2026-01-05" required></label><label>До даты, не включая<input id="end" type="date" value="2026-03-02" required></label><label class="wide">Известно к моменту<input id="as-of" type="datetime-local" value="2026-03-09T00:00"></label><div class="select-field"><label for="channel">Канал</label><select id="channel"><option value="">Все каналы</option></select></div><div class="select-field"><label for="category">Категория</label><select id="category"><option value="">Все категории</option></select></div><button class="button primary" type="submit">Применить →</button></div></form>
-<div id="notice" class="notice" role="status" aria-live="polite">Загружаем снимок…</div>
-<section class="metric-grid" aria-label="Главные показатели"><article class="metric featured"><div class="metric-label">Чистая стоимость бронирований <span>↗</span></div><strong id="net">—</strong><p>Платежи минус полные отмены</p><div class="metric-foot">Продуктовая метрика · USD</div></article><article class="metric"><div class="metric-label">Оплаченные аренды <span>▣</span></div><strong id="paid">—</strong><p><span id="gross">—</span> стоимость платежей</p><div class="metric-foot">Одна оплата на аренду</div></article><article class="metric"><div class="metric-label">Конверсия в оплату <span>↳</span></div><strong id="conversion">—</strong><p>Сессии с полным упорядоченным путём</p><div class="metric-foot">Просмотр → оплата</div></article><article class="metric"><div class="metric-label">Отменённая стоимость <span>↶</span></div><strong id="reversed">—</strong><p><span id="cancelled">—</span> полных отмен</p><div class="metric-foot">По дате отмены, включая старые оплаты</div></article></section>
-<section class="panel trend"><div class="section-heading"><div><h2>Динамика стоимости</h2><p>Оплаты и отмены по дате события</p></div><div class="legend"><span class="green-dot"></span> Оплаты <span class="orange-dot"></span> Отмены</div></div><div id="chart" class="chart" aria-label="График дневных платежей и отмен"></div><div class="chart-footer"><span>USD · события в выбранном периоде</span><span id="chart-total"></span></div></section>
-<section id="revisions" class="revision panel"><div class="section-heading"><div><div class="eyebrow">ДВА МОМЕНТА ЗНАНИЯ</div><h2>Как изменилась картина?</h2><p>Что мы знали тогда: тот же период событий, разное время поступления данных.</p></div><span class="pill">История доступна</span></div><form id="compare-form" class="compare-controls"><label>Ранний срез, UTC<input type="datetime-local" id="before" value="2026-02-27T00:00" required></label><div class="compare-arrow">→</div><label>Поздний срез, UTC<input type="datetime-local" id="after" value="2026-03-09T00:00" required></label><button type="submit" class="button dark">Сравнить срезы</button></form><div id="comparison" class="comparison"><p class="muted">Сравните срезы: поздние события могут восстановить цепочку и пересчитать прошлые показатели.</p></div></section>
-<div id="journey" class="two-columns"><section class="panel"><div class="section-heading"><div><h2>Путь до оплаты</h2><p>Уникальные сессии с просмотром в периоде</p></div><span class="panel-index">01—04</span></div><div id="funnel" class="funnel"></div><p class="panel-note">Этап считается только после предыдущего. Платёж без бронирования не увеличивает конверсию.</p></section><section class="panel"><div class="section-heading"><div><h2>Возвращаются за новой арендой</h2><p>Неделя первой оплаты · понедельник, UTC</p></div></div><div class="table-scroll"><table class="retention"><thead><tr><th>Когорта</th><th>Людей</th><th>Н0</th><th>Н1</th><th>Н2</th><th>Н3</th><th>Н4</th><th>Н5</th></tr></thead><tbody id="cohorts"></tbody></table></div><div class="cohort-legend"><span>— ещё не наблюдалось</span><span>◌ неполная неделя</span></div><p class="panel-note">Возврат = другая оплаченная аренда. Отмена не стирает факт активности. Н0 — неделя первой оплаты.</p></section></div>
-<section id="quality" class="panel"><div class="section-heading"><div><h2>Данные под контролем</h2><p>Квитанции доставки по всей базе до выбранного момента; фильтры периода и сегмента не применяются.</p></div><span class="pill neutral">Исходники неизменяемы</span></div><div id="quality-cards" class="quality-grid"></div><div id="exclusions" class="exclusions"></div><div id="receipt-results" class="receipt-results" hidden></div></section>
-<section id="ledger" class="panel"><div class="section-heading"><div><h2>От цифры — к событию</h2><p>Оплаты и полные отмены. Откройте строку, чтобы проверить всю цепочку источников.</p></div><span id="ledger-count" class="pill neutral">— операций</span></div><div class="table-scroll"><table class="ledger"><thead><tr><th>Событие / аренда</th><th>Время события, UTC</th><th>Канал</th><th>Категория</th><th>Стоимость</th><th>Источники</th></tr></thead><tbody id="ledger-body"></tbody></table></div><div class="pagination"><span id="ledger-page"></span><div><button id="previous" class="button small" type="button">← Назад</button><button id="next" class="button small" type="button">Далее →</button></div></div></section>
-<footer><div><strong>ProductPulse</strong> · Проверяемая аналитика аренды<p>Синтетический проект. Стоимость бронирований — не бухгалтерская выручка.</p></div><div class="fingerprint">Отпечаток содержимого снимка<code id="fingerprint">—</code></div></footer>
-</main>
-<dialog id="details"><div class="dialog-head"><div><div class="eyebrow">ПРОИСХОЖДЕНИЕ ПОКАЗАТЕЛЯ</div><h2 id="details-title">Цепочка событий</h2></div><button id="close-dialog" class="icon-button" aria-label="Закрыть">×</button></div><div id="details-body"></div></dialog>
-</body></html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ProductPulse · История за цифрами</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#overview"
+        ><span class="brand-icon">p<span>•</span></span
+        ><span>Product<span class="brand-light">Pulse</span></span></a
+      >
+      <div class="workspace">
+        <span class="workspace-icon">↗</span>
+        <div>Лаборатория аренды<small>Синтетический набор данных</small></div>
+      </div>
+      <div class="nav-label">РАБОЧАЯ ОБЛАСТЬ</div>
+      <nav aria-label="Разделы">
+        <a href="#overview" class="active">◫ <span>Обзор показателей</span></a
+        ><a href="#revisions">⇄ <span>Изменения снимка</span></a
+        ><a href="#journey">▤ <span>Путь и удержание</span></a
+        ><a href="#quality"
+          >◇ <span>Качество данных</span><span id="quality-badge" class="badge">—</span></a
+        ><a href="#ledger">≡ <span>Журнал операций</span></a>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="live-dot"></div>
+        <strong>Проверяемые цифры</strong>
+        <p>Каждый показатель связан<br />с исходными событиями.</p>
+        <a href="/docs" target="_blank" rel="noopener">Справочник API ↗</a
+        ><span class="version">ПОЛИТИКА rental-v1</span>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <span>Рабочая область <span class="divider">/</span> <strong>Аналитика аренды</strong></span
+        ><span class="synthetic"><i></i> Только синтетические данные</span>
+      </header>
+      <section id="overview" class="page-heading">
+        <div>
+          <div class="eyebrow">НЕ ПРОСТО ЧИСЛА. ИСТОРИЯ ИЗМЕНЕНИЙ.</div>
+          <h1>Проверяемая аналитика аренды</h1>
+          <p>Путь клиента, стоимость бронирований и источники каждого изменения.</p>
+        </div>
+        <button
+          id="export"
+          class="button secondary"
+          title="CSV пересчитывается по применённым фильтрам. Новые доставки могут изменить результат."
+        >
+          ↓ Журнал CSV
+        </button>
+      </section>
+      <form id="filters" class="filter-panel">
+        <div class="filter-caption">
+          <strong>Период событий</strong><span>Все даты и время — UTC</span>
+        </div>
+        <div class="filter-fields">
+          <label>С даты<input id="start" type="date" value="2026-01-05" required /></label
+          ><label
+            >До даты, не включая<input id="end" type="date" value="2026-03-02" required /></label
+          ><label class="wide"
+            >Известно к моменту<input id="as-of" type="datetime-local" value="2026-03-09T00:00"
+          /></label>
+          <div class="select-field">
+            <label for="channel">Канал</label
+            ><select id="channel">
+              <option value="">Все каналы</option>
+            </select>
+          </div>
+          <div class="select-field">
+            <label for="category">Категория</label
+            ><select id="category">
+              <option value="">Все категории</option>
+            </select>
+          </div>
+          <button class="button primary" type="submit">Применить →</button>
+        </div>
+      </form>
+      <div id="notice" class="notice" role="status" aria-live="polite">Загружаем снимок…</div>
+      <section class="metric-grid" aria-label="Главные показатели">
+        <article class="metric featured">
+          <div class="metric-label">Чистая стоимость бронирований <span>↗</span></div>
+          <strong id="net">—</strong>
+          <p>Платежи минус полные отмены</p>
+          <div class="metric-foot">Продуктовая метрика · USD</div>
+        </article>
+        <article class="metric">
+          <div class="metric-label">Оплаченные аренды <span>▣</span></div>
+          <strong id="paid">—</strong>
+          <p><span id="gross">—</span> стоимость платежей</p>
+          <div class="metric-foot">Одна оплата на аренду</div>
+        </article>
+        <article class="metric">
+          <div class="metric-label">Конверсия в оплату <span>↳</span></div>
+          <strong id="conversion">—</strong>
+          <p>Сессии с полным упорядоченным путём</p>
+          <div class="metric-foot">Просмотр → оплата</div>
+        </article>
+        <article class="metric">
+          <div class="metric-label">Отменённая стоимость <span>↶</span></div>
+          <strong id="reversed">—</strong>
+          <p><span id="cancelled">—</span> полных отмен</p>
+          <div class="metric-foot">По дате отмены, включая старые оплаты</div>
+        </article>
+      </section>
+      <section class="panel trend">
+        <div class="section-heading">
+          <div>
+            <h2>Динамика стоимости</h2>
+            <p>Оплаты и отмены по дате события</p>
+          </div>
+          <div class="legend">
+            <span class="green-dot"></span> Оплаты <span class="orange-dot"></span> Отмены
+          </div>
+        </div>
+        <div id="chart" class="chart" aria-label="График дневных платежей и отмен"></div>
+        <div class="chart-footer">
+          <span>USD · события в выбранном периоде</span><span id="chart-total"></span>
+        </div>
+      </section>
+      <section id="revisions" class="revision panel">
+        <div class="section-heading">
+          <div>
+            <div class="eyebrow">ДВА МОМЕНТА ЗНАНИЯ</div>
+            <h2>Как изменилась картина?</h2>
+            <p>Что мы знали тогда: тот же период событий, разное время поступления данных.</p>
+          </div>
+          <span class="pill">История доступна</span>
+        </div>
+        <form id="compare-form" class="compare-controls">
+          <label
+            >Ранний срез, UTC<input
+              type="datetime-local"
+              id="before"
+              value="2026-02-27T00:00"
+              required
+          /></label>
+          <div class="compare-arrow">→</div>
+          <label
+            >Поздний срез, UTC<input
+              type="datetime-local"
+              id="after"
+              value="2026-03-09T00:00"
+              required /></label
+          ><button type="submit" class="button dark">Сравнить срезы</button>
+        </form>
+        <div id="comparison" class="comparison">
+          <p class="muted">
+            Сравните срезы: поздние события могут восстановить цепочку и пересчитать прошлые
+            показатели.
+          </p>
+        </div>
+      </section>
+      <div id="journey" class="two-columns">
+        <section class="panel">
+          <div class="section-heading">
+            <div>
+              <h2>Путь до оплаты</h2>
+              <p>Уникальные сессии с просмотром в периоде</p>
+            </div>
+            <span class="panel-index">01—04</span>
+          </div>
+          <div id="funnel" class="funnel"></div>
+          <p class="panel-note">
+            Этап считается только после предыдущего. Платёж без бронирования не увеличивает
+            конверсию.
+          </p>
+        </section>
+        <section class="panel">
+          <div class="section-heading">
+            <div>
+              <h2>Возвращаются за новой арендой</h2>
+              <p>Неделя первой оплаты · понедельник, UTC</p>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="retention">
+              <thead>
+                <tr>
+                  <th>Когорта</th>
+                  <th>Людей</th>
+                  <th>Н0</th>
+                  <th>Н1</th>
+                  <th>Н2</th>
+                  <th>Н3</th>
+                  <th>Н4</th>
+                  <th>Н5</th>
+                </tr>
+              </thead>
+              <tbody id="cohorts"></tbody>
+            </table>
+          </div>
+          <div class="cohort-legend">
+            <span>— ещё не наблюдалось</span><span>◌ неполная неделя</span>
+          </div>
+          <p class="panel-note">
+            Возврат = другая оплаченная аренда. Отмена не стирает факт активности. Н0 — неделя
+            первой оплаты.
+          </p>
+        </section>
+      </div>
+      <section id="quality" class="panel">
+        <div class="section-heading">
+          <div>
+            <h2>Данные под контролем</h2>
+            <p>
+              Квитанции доставки по всей базе до выбранного момента; фильтры периода и сегмента не
+              применяются.
+            </p>
+          </div>
+          <span class="pill neutral">Исходники неизменяемы</span>
+        </div>
+        <div id="quality-cards" class="quality-grid"></div>
+        <div id="exclusions" class="exclusions"></div>
+        <div id="receipt-results" class="receipt-results" hidden></div>
+      </section>
+      <section id="ledger" class="panel">
+        <div class="section-heading">
+          <div>
+            <h2>От цифры — к событию</h2>
+            <p>Оплаты и полные отмены. Откройте строку, чтобы проверить всю цепочку источников.</p>
+          </div>
+          <span id="ledger-count" class="pill neutral">— операций</span>
+        </div>
+        <div class="table-scroll">
+          <table class="ledger">
+            <thead>
+              <tr>
+                <th>Событие / аренда</th>
+                <th>Время события, UTC</th>
+                <th>Канал</th>
+                <th>Категория</th>
+                <th>Стоимость</th>
+                <th>Источники</th>
+              </tr>
+            </thead>
+            <tbody id="ledger-body"></tbody>
+          </table>
+        </div>
+        <div class="pagination">
+          <span id="ledger-page"></span>
+          <div>
+            <button id="previous" class="button small" type="button">← Назад</button
+            ><button id="next" class="button small" type="button">Далее →</button>
+          </div>
+        </div>
+      </section>
+      <footer>
+        <div>
+          <strong>ProductPulse</strong> · Проверяемая аналитика аренды
+          <p>Синтетический проект. Стоимость бронирований — не бухгалтерская выручка.</p>
+        </div>
+        <div class="fingerprint">Отпечаток содержимого снимка<code id="fingerprint">—</code></div>
+      </footer>
+    </main>
+    <dialog id="details">
+      <div class="dialog-head">
+        <div>
+          <div class="eyebrow">ПРОИСХОЖДЕНИЕ ПОКАЗАТЕЛЯ</div>
+          <h2 id="details-title">Цепочка событий</h2>
+        </div>
+        <button id="close-dialog" class="icon-button" aria-label="Закрыть">×</button>
+      </div>
+      <div id="details-body"></div>
+    </dialog>
+  </body>
+</html>

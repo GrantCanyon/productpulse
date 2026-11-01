@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
           cache: pip
       - run: python -m pip install -c constraints.txt -e ".[dev]"
       - run: python -m ruff check src tests
@@ -27,7 +27,7 @@ jobs:
           POSTGRES_USER: pulse_test
           POSTGRES_PASSWORD: local_test_only
           POSTGRES_DB: pulse_test
-        ports: ['5432:5432']
+        ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U pulse_test -d pulse_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
@@ -37,7 +37,37 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
           cache: pip
       - run: python -m pip install -c constraints.txt -e ".[dev]"
       - run: python -m pytest -q
+  compose:
+    name: Контейнерный сценарий README
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_PROJECT_NAME: productpulse-ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Собрать приложение и дождаться базы
+        run: |
+          docker compose build app
+          docker compose up -d --wait db
+      - name: Загрузить и сверить синтетическое демо
+        run: |
+          docker compose run --rm app demo > demo-result.json
+          python -c "import json; d=json.load(open('demo-result.json')); assert d['reconciled']; assert d['actual']['net_cents']==6027200; assert d['deliveries']==1985"
+      - name: Проверить HTTP и ресурсы контейнера
+        run: |
+          docker compose up -d app
+          curl --fail --silent --show-error --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:8010/api/health > health.json
+          curl --fail --silent --show-error 'http://127.0.0.1:8010/api/report?start=2026-01-05&end=2026-03-02&as_of=2026-03-09T00:00:00Z' > report.json
+          python -c "import json; assert json.load(open('health.json'))['status']=='ok'; assert json.load(open('report.json'))['metrics']['net_cents']==6027200"
+          for path in / /static/app.js /static/styles.css /docs /openapi.json; do
+            curl --fail --silent --show-error "http://127.0.0.1:8010$path" --output /dev/null
+          done
+      - name: Показать диагностику при сбое
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Удалить только временные контейнеры и тома этого задания
+        if: always()
+        run: docker compose down --volumes --remove-orphans

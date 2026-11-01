@@ -3,9 +3,11 @@
 import hashlib
 import json
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import timedelta
 
 from productpulse.domain import canonical, iso, timestamp
+from productpulse.revisions import explain_revision
 from productpulse.store import STATUSES
 
 POLICY = "rental-v1"
@@ -16,12 +18,30 @@ def week(value):
     return (value - timedelta(days=value.weekday())).date()
 
 
+@dataclass
+class Projection:
+    snapshot: dict
+    funnel_memberships: dict
+
+
 def report(store, *, start, end, as_of=None, channel=None, category=None):
+    return _project(
+        store.read(as_of=as_of),
+        start=start,
+        end=end,
+        as_of=as_of,
+        channel=channel,
+        category=category,
+    ).snapshot
+
+
+def _project(rows, *, start, end, as_of=None, channel=None, category=None):
     begin, finish = timestamp(start, date_allowed=True), timestamp(end, date_allowed=True)
     if begin >= finish:
         raise ValueError("end должен быть позже start")
     cutoff = timestamp(as_of) if as_of else None
-    rows = store.read(as_of=as_of)
+    if cutoff:
+        rows = [row for row in rows if row["received_at"] <= iso(cutoff)]
     quality = dict.fromkeys(STATUSES, 0)
     accepted = []
     for row in rows:
@@ -124,12 +144,16 @@ def report(store, *, start, end, as_of=None, channel=None, category=None):
     paid_count = sum(e["amount_cents"] > 0 for e in window_ledger)
     contributing = {eid for entry in window_ledger for eid in entry["source_event_ids"]}
     counts = [0] * 4
+    funnel_memberships = {stage: {} for stage in STAGES}
     for state in sessions.values():
         first = state["events"][0]
         if begin <= timestamp(first["occurred_at"]) < finish and matches(first):
             contributing.update(e["event_id"] for e in state["events"])
             for i in range(len(state["events"])):
                 counts[i] += 1
+                funnel_memberships[STAGES[i]][first["session_id"]] = [
+                    e["event_id"] for e in state["events"][: i + 1]
+                ]
     funnel = [
         {
             "stage": s,
@@ -221,7 +245,7 @@ def report(store, *, start, end, as_of=None, channel=None, category=None):
         "cohorts": cohort_rows,
         "daily": daily_rows,
     }
-    return {
+    snapshot = {
         "policy_version": POLICY,
         "window": {
             "start": iso(begin),
@@ -247,6 +271,8 @@ def report(store, *, start, end, as_of=None, channel=None, category=None):
         },
     }
 
+    return Projection(snapshot, funnel_memberships)
+
 
 def _entry(e, amount, payment_id, source_ids):
     return {
@@ -267,8 +293,11 @@ def _entry(e, amount, payment_id, source_ids):
 def compare(store, *, before, after, **filters):
     if timestamp(before) > timestamp(after):
         raise ValueError("after должен быть не раньше before")
-    left = report(store, as_of=before, **filters)
-    right = report(store, as_of=after, **filters)
+    # Одна захваченная история: импорт между проекциями не смешивает два состояния базы.
+    rows = store.read(as_of=after)
+    left_projection = _project(rows, as_of=before, **filters)
+    right_projection = _project(rows, as_of=after, **filters)
+    left, right = left_projection.snapshot, right_projection.snapshot
     old_ids, new_ids = set(left["source_event_ids"]), set(right["source_event_ids"])
     return {
         "before": left,
@@ -278,4 +307,11 @@ def compare(store, *, before, after, **filters):
         },
         "added_event_ids": sorted(new_ids - old_ids),
         "removed_event_ids": sorted(old_ids - new_ids),
+        "revision": explain_revision(
+            rows,
+            left,
+            right,
+            left_projection.funnel_memberships,
+            right_projection.funnel_memberships,
+        ),
     }
