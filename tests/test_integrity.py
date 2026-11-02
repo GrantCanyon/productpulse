@@ -199,15 +199,29 @@ def test_legacy_database_schema_is_rejected_explicitly(tmp_path):
         db.close()
 
 
-def test_deeply_nested_invalid_json_does_not_abort_neighbors(store):
-    import sys
+@pytest.mark.parametrize("opening,closing", [("[", "]"), ('{"nested":', "}")])
+def test_deeply_nested_invalid_json_does_not_abort_neighbors(store, opening, closing):
+    import hashlib
 
-    depth = sys.getrecursionlimit() + 100
-    raw = "[" * depth + "0" + "]" * depth
-    result = store.ingest([json.dumps(event("viewed", eid="good")), raw], source="тест")
-    assert result["accepted"] == 1
-    assert result["invalid"] == 1
-    assert store.receipts(status="invalid")["items"][0]["raw_json"] == raw
+    from productpulse.domain import validate
+
+    # У C-парсера собственный предел: getrecursionlimit()+100 не воспроизводил отказ в 3.12.
+    raw = opening * 5000 + "0" + closing * 5000
+    with pytest.raises(RecursionError):
+        json.loads(raw)
+    with pytest.raises(ValueError, match="вложенность") as error:
+        validate(raw)
+    assert isinstance(error.value.__cause__, RecursionError)
+    result = store.ingest(
+        [json.dumps(event("viewed", eid="first")), raw, json.dumps(event("viewed", eid="last"))],
+        source="тест",
+    )
+    assert result == {"accepted": 2, "duplicate": 0, "conflict": 0, "invalid": 1}
+    assert store.receipts()["total"] == 3
+    receipt = store.receipts(status="invalid")["items"][0]
+    assert receipt["raw_json"] == raw
+    assert receipt["raw_sha256"] == hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    assert "вложенность" in receipt["reason"]
 
 
 def test_store_rejects_huge_offset_before_sql(store):

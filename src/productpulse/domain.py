@@ -62,6 +62,8 @@ def validate(raw: str) -> dict:
                 ValueError("Недопустимое числовое значение")
             ),
         )
+    except RecursionError as exc:
+        raise ValueError("Превышена допустимая вложенность JSON") from exc
     except (json.JSONDecodeError, TypeError) as exc:
         raise ValueError("Некорректный JSON") from exc
     if not isinstance(value, dict):
