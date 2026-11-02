@@ -203,18 +203,41 @@ def test_legacy_database_schema_is_rejected_explicitly(tmp_path):
 def test_deeply_nested_invalid_json_does_not_abort_neighbors(store, opening, closing):
     import hashlib
 
-    from productpulse.domain import validate
-
-    # У C-парсера собственный предел: getrecursionlimit()+100 не воспроизводил отказ в 3.12.
+    # Предел парсера зависит от сборки: важен карантин, а не конкретный путь отказа.
     raw = opening * 5000 + "0" + closing * 5000
-    with pytest.raises(RecursionError):
-        json.loads(raw)
-    with pytest.raises(ValueError, match="вложенность") as error:
-        validate(raw)
-    assert isinstance(error.value.__cause__, RecursionError)
     result = store.ingest(
         [json.dumps(event("viewed", eid="first")), raw, json.dumps(event("viewed", eid="last"))],
         source="тест",
+    )
+    assert result == {"accepted": 2, "duplicate": 0, "conflict": 0, "invalid": 1}
+    assert store.receipts()["total"] == 3
+    receipt = store.receipts(status="invalid")["items"][0]
+    assert receipt["raw_json"] == raw
+    assert receipt["raw_sha256"] == hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    assert receipt["reason"]
+
+
+def test_parser_recursion_error_is_quarantined_with_neighbors(store, monkeypatch):
+    import hashlib
+
+    from productpulse import domain
+
+    raw = json.dumps(event("viewed", eid="parser-limit-fixture"))
+    original_loads = json.loads
+
+    def loads_with_injected_limit(value, *args, **kwargs):
+        # Инъекция только для маркера; соседей и сохранённые обёртки разбирает настоящий JSON.
+        if value == raw:
+            raise RecursionError("Синтетический отказ парсера")
+        return original_loads(value, *args, **kwargs)
+
+    monkeypatch.setattr(domain.json, "loads", loads_with_injected_limit)
+    with pytest.raises(ValueError, match="вложенность") as error:
+        domain.validate(raw)
+    assert isinstance(error.value.__cause__, RecursionError)
+    result = store.ingest(
+        [json.dumps(event("viewed", eid="first")), raw, json.dumps(event("viewed", eid="last"))],
+        source="инъекция ошибки",
     )
     assert result == {"accepted": 2, "duplicate": 0, "conflict": 0, "invalid": 1}
     assert store.receipts()["total"] == 3
