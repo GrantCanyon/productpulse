@@ -158,3 +158,88 @@ def test_http_revision_explains_payment_from_canonical_receipts(store):
         assert len(row["after"]["source_refs"]) == 4
         receipt = client.get("/api/receipts", params={"event_id": row["event_id"]}).json()
         assert receipt["items"][0]["id"] == row["after"]["receipt_id"]
+
+
+def test_http_archives_are_read_only_and_return_exact_saved_bytes(store, monkeypatch):
+    from productpulse import analytics
+    from productpulse.snapshots import read_snapshot_bytes, save_snapshot
+
+    store.ingest(
+        [json.dumps(e) for e in journey()], source="архив", received_at="2026-01-06T00:00:00Z"
+    )
+    manifest = save_snapshot(store, start="2026-01-01", end="2026-02-01")
+    sid = manifest["id"]
+    expected = {fmt: read_snapshot_bytes(store, sid, format=fmt)[1] for fmt in ("json", "csv")}
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("HTTP архива не должен вызывать проектор")
+
+    monkeypatch.setattr(analytics, "_project", forbidden)
+    with TestClient(create_app(store)) as client:
+        assert client.get("/api/snapshots").json()["total"] == 1
+        assert client.get(f"/api/snapshots/{sid}").json() == manifest
+        for fmt, suffix, digest in [
+            ("json", "report", "report_sha256"),
+            ("csv", "ledger.csv", "csv_sha256"),
+        ]:
+            response = client.get(f"/api/snapshots/{sid}/{suffix}")
+            assert response.status_code == 200
+            assert response.content == expected[fmt]
+            assert response.headers["x-snapshot-id"] == sid
+            assert response.headers["x-content-sha256"] == manifest[digest]
+        assert client.post("/api/snapshots", json={}).status_code == 405
+        assert client.delete(f"/api/snapshots/{sid}").status_code == 405
+        assert client.get("/api/snapshots/00000000-0000-4000-8000-000000000000").status_code == 404
+        assert client.get("/api/snapshots/invalid").status_code == 400
+        assert client.get("/api/snapshots?offset=9223372036854775808").status_code == 422
+
+
+def test_cli_saves_lists_and_exports_archive_without_overwriting(tmp_path, capsys):
+    db = f"sqlite:///{tmp_path / 'archive-cli.db'}"
+    assert (
+        main(["--database", db, "snapshot-save", "--start", "2026-01-01", "--end", "2026-02-01"])
+        == 0
+    )
+    manifest = json.loads(capsys.readouterr().out)
+    assert main(["--database", db, "snapshot-list"]) == 0
+    assert json.loads(capsys.readouterr().out)["items"][0]["id"] == manifest["id"]
+    target = tmp_path / "snapshot.json"
+    args = [
+        "--database",
+        db,
+        "snapshot-export",
+        manifest["id"],
+        "--format",
+        "json",
+        "--output",
+        str(target),
+    ]
+    assert main(args) == 0
+    original = target.read_bytes()
+    assert json.loads(original)["metrics"]["net_cents"] == 0
+    assert main(args) == 2
+    assert target.read_bytes() == original
+
+
+def test_http_refuses_corrupt_archive_without_returning_saved_payload(store):
+    from uuid import uuid4
+
+    from sqlalchemy import select
+
+    from productpulse.snapshots import save_snapshot
+
+    manifest = save_snapshot(store, start="2026-01-01", end="2026-02-01")
+    with store.engine.begin() as conn:
+        row = dict(
+            conn.execute(select(store.snapshots).where(store.snapshots.c.id == manifest["id"]))
+            .mappings()
+            .one()
+        )
+        damaged_id = str(uuid4())
+        row.update(id=damaged_id, report_json=b"corrupt-content")
+        conn.execute(store.snapshots.insert().values(**row))
+    with TestClient(create_app(store)) as client:
+        response = client.get(f"/api/snapshots/{damaged_id}/report")
+        assert response.status_code == 409
+        assert "SHA-256" in response.json()["detail"]
+        assert b"corrupt-content" not in response.content

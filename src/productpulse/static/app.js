@@ -40,6 +40,11 @@ let snapshot = null,
   comparisonVersion = 0;
 // Экспорт пересчитывается по последним применённым фильтрам, не по несохранённым полям.
 let appliedFilters = null;
+// Архив — отдельный режим: живые запросы не должны незаметно заменить сохранённые данные.
+let archiveMode = null,
+  archiveOffset = 0,
+  archiveListVersion = 0,
+  liveFilters = null;
 function node(tag, text, className) {
   const element = document.createElement(tag);
   if (text !== undefined) element.textContent = text;
@@ -80,6 +85,126 @@ function fillSelect(id, values) {
 function countText(count) {
   return `${number(count)} операций`;
 }
+function setFilterFields(params) {
+  $("start").value = params.start.slice(0, 10);
+  $("end").value = params.end.slice(0, 10);
+  $("as-of").value = params.as_of ? params.as_of.slice(0, 16) : "";
+  for (const key of ["channel", "category"]) {
+    const value = params[key] || "";
+    if (value && !Array.from($(key).options).some((option) => option.value === value)) {
+      $(key).add(new Option(label(value), value));
+    }
+    $(key).value = value;
+  }
+}
+function setReportMode() {
+  const frozen = !!archiveMode;
+  for (const control of document.querySelectorAll(
+    "#filters input, #filters select, #filters button, #compare-form input, #compare-form button",
+  ))
+    control.disabled = frozen;
+  $("report-mode").textContent = frozen
+    ? "Архивный снимок · без пересчёта"
+    : "Живой отчёт · пересчёт";
+  $("report-mode").className = `mode-badge${frozen ? " archived" : ""}`;
+  $("archive-live").hidden = !frozen;
+  $("archive-banner").hidden = !frozen;
+  $("export").textContent = frozen ? "↓ CSV архива" : "↓ Журнал CSV";
+  $("export").title = frozen
+    ? "Точные сохранённые байты CSV, без пересчёта."
+    : "CSV пересчитывается по применённым фильтрам. Новые доставки могут изменить результат.";
+  document.querySelector("#quality .section-heading p").textContent = frozen
+    ? "Сохранённые счётчики качества на момент захвата истории. Очередь доставок в архив не включена."
+    : "Квитанции доставки по всей базе до выбранного момента; фильтры периода и сегмента не применяются.";
+}
+async function loadArchives(offset = 0) {
+  const version = ++archiveListVersion;
+  $("archive-list-status").textContent = "Загружаем список архивов…";
+  try {
+    const data = await get("/api/snapshots", { offset, limit: 20 });
+    if (version !== archiveListVersion) return;
+    archiveOffset = offset;
+    const selected = $("archive-select").value,
+      select = $("archive-select");
+    select.replaceChildren(
+      new Option(data.total ? "Выберите сохранённый снимок" : "Архивов пока нет", ""),
+    );
+    for (const item of data.items) {
+      select.add(
+        new Option(
+          `${item.created_at.slice(0, 16).replace("T", " ")} UTC · ${item.id.slice(0, 8)} · ${item.parameters.start.slice(0, 10)} — ${item.parameters.end.slice(0, 10)}`,
+          item.id,
+        ),
+      );
+    }
+    select.value = data.items.some((item) => item.id === selected)
+      ? selected
+      : data.items[0]?.id || "";
+    $("archive-open").disabled = !select.value;
+    $("archive-previous").disabled = offset === 0;
+    $("archive-next").disabled = offset + 20 >= data.total;
+    $("archive-list-status").textContent = data.total
+      ? `${offset + 1}–${Math.min(offset + 20, data.total)} из ${data.total} архивов`
+      : "Сохранённых снимков ещё нет.";
+  } catch (error) {
+    if (version === archiveListVersion) $("archive-list-status").textContent = error.message;
+  }
+}
+async function openArchive() {
+  const id = $("archive-select").value;
+  if (!id) return;
+  const version = ++requestVersion;
+  comparisonVersion++;
+  notice("Открываем сохранённые данные и проверяем контрольные суммы…");
+  $("archives").classList.add("loading");
+  try {
+    const [manifest, data] = await Promise.all([
+      get(`/api/snapshots/${id}`),
+      get(`/api/snapshots/${id}/report`),
+    ]);
+    if (version !== requestVersion) return;
+    if (!archiveMode)
+      liveFilters = appliedFilters
+        ? { ...appliedFilters }
+        : { ...formFilters(), as_of: utc($("as-of").value) };
+    archiveMode = manifest;
+    snapshot = data;
+    ledgerPage = 0;
+    render();
+    setFilterFields(manifest.parameters);
+    setReportMode();
+    $("filters").classList.remove("loading");
+    $("archive-id").textContent = manifest.id;
+    $("archive-created").textContent =
+      `Создан: ${manifest.created_at} · формат ${manifest.format_version} · политика ${manifest.policy_version}`;
+    $("archive-parameters").textContent =
+      `Период: ${manifest.parameters.start} → ${manifest.parameters.end}, конец не включается. Момент знания: ${manifest.parameters.as_of || "все доставки захваченной истории"}.`;
+    $("archive-json-hash").textContent = manifest.report_sha256;
+    $("archive-csv-hash").textContent = manifest.csv_sha256;
+    $("receipt-results").hidden = true;
+    $("comparison").replaceChildren(
+      node(
+        "p",
+        "Открыт архив. Сравнение живых срезов отключено, чтобы не смешивать его с сохранённым результатом. Для пересчёта нажмите «К живому отчёту».",
+        "muted",
+      ),
+    );
+    notice(
+      `Архив ${manifest.id.slice(0, 8)} · JSON и CSV проверены сервером по SHA-256 · пересчёта нет.`,
+    );
+  } catch (error) {
+    if (version === requestVersion)
+      notice(`${error.message}. Ранее открытый отчёт не изменён.`, true);
+  } finally {
+    $("archives").classList.remove("loading");
+  }
+}
+async function returnToLive() {
+  if (!archiveMode) return;
+  setFilterFields(liveFilters || archiveMode.parameters);
+  await refresh();
+}
+
 async function refresh(event) {
   if (event) event.preventDefault();
   const version = ++requestVersion;
@@ -91,7 +216,10 @@ async function refresh(event) {
     const data = await get("/api/report", filters);
     if (version !== requestVersion) return;
     snapshot = data;
+    archiveMode = null;
     appliedFilters = filters;
+    liveFilters = { ...filters };
+    setReportMode();
     ledgerPage = 0;
     render();
     $("receipt-results").hidden = true;
@@ -106,13 +234,17 @@ async function refresh(event) {
         "Пока нет событий для этого среза. Загрузите синтетический сценарий командой productpulse demo или измените период.",
       );
   } catch (error) {
+    if (version !== requestVersion) return;
     const message =
       error.message === "end должен быть позже start"
         ? "Дата окончания должна быть позже даты начала"
         : error.message;
-    const previous = snapshot
-      ? ` Показан последний успешно рассчитанный отчёт: ${snapshot.window.start.slice(0, 10)} — ${snapshot.window.end.slice(0, 10)} (до даты, не включая). Экспорт использует его фильтры и заново рассчитывает данные.`
-      : "";
+    if (archiveMode) setFilterFields(archiveMode.parameters);
+    const previous = archiveMode
+      ? ` Показан прежний архив ${archiveMode.id}; пересчёта и изменения сохранённых данных нет.`
+      : snapshot
+        ? ` Показан последний успешно рассчитанный отчёт: ${snapshot.window.start.slice(0, 10)} — ${snapshot.window.end.slice(0, 10)} (до даты, не включая). Экспорт использует его фильтры и заново рассчитывает данные.`
+        : "";
     notice(message + "." + previous, true);
   } finally {
     if (version === requestVersion) $("filters").classList.remove("loading");
@@ -277,6 +409,8 @@ function renderQuality() {
   for (const status of ["accepted", "duplicate", "conflict", "invalid"]) {
     const button = node("button", undefined, `quality-card ${status}`);
     button.type = "button";
+    button.disabled = !!archiveMode;
+    if (archiveMode) button.title = "Архив содержит счётчик, но не очередь исходных доставок.";
     button.append(
       node("small", label(status)),
       node("strong", number(snapshot.quality[status])),
@@ -293,6 +427,7 @@ function renderQuality() {
   if (!snapshot.exclusions.length) exclusions.append(node("span", "нет", "exclusion-chip"));
 }
 async function showQuality(status, offset = 0) {
+  if (archiveMode) return;
   const box = $("receipt-results");
   box.hidden = false;
   box.replaceChildren(node("p", "Загружаем квитанции…", "muted"));
@@ -382,7 +517,7 @@ function renderLedger() {
 }
 async function compareSnapshots(event) {
   if (event) event.preventDefault();
-  if (!appliedFilters) return;
+  if (!appliedFilters || archiveMode) return;
   // Ответ старого запроса не должен подменить более новый выбор пользователя.
   const version = ++comparisonVersion,
     box = $("comparison");
@@ -659,13 +794,24 @@ function showRevisionSources(refs, title, asOf, offset = 0) {
   if (!$("details").open) $("details").showModal();
 }
 
-async function trace(ids, title, asOf = appliedFilters.as_of) {
+async function trace(
+  ids,
+  title,
+  asOf = archiveMode ? archiveMode.parameters.as_of : appliedFilters.as_of,
+) {
   $("details-title").textContent = title;
   $("details-body").replaceChildren(node("p", "Читаем исходные квитанции…", "muted"));
   if (!$("details").open) $("details").showModal();
   try {
     const groups = await Promise.all(
-      ids.map((event_id) => get("/api/receipts", { event_id, as_of: asOf, limit: 200 })),
+      ids.map((event_id) =>
+        get("/api/receipts", {
+          event_id,
+          as_of: asOf,
+          limit: 200,
+          status: archiveMode ? "accepted" : null,
+        }),
+      ),
     );
     showReceipts(
       groups
@@ -687,7 +833,9 @@ function showReceipts(receipts, title) {
   body.replaceChildren(
     node(
       "p",
-      "Сохранены исходный JSON, источник, время получения и SHA-256. Повторы и конфликты не заменяют принятое событие.",
+      archiveMode
+        ? "Это канонические квитанции из текущей базы, а не содержимое архива. В архиве сохранены только ссылки на события."
+        : "Сохранены исходный JSON, источник, время получения и SHA-256. Повторы и конфликты не заменяют принятое событие.",
       "muted",
     ),
   );
@@ -740,8 +888,21 @@ $("details").addEventListener("click", (e) => {
   }
 });
 $("export").onclick = () => {
-  if (appliedFilters) window.location.href = `/api/export?${query(appliedFilters)}`;
+  if (archiveMode) window.location.href = `/api/snapshots/${archiveMode.id}/ledger.csv`;
+  else if (appliedFilters) window.location.href = `/api/export?${query(appliedFilters)}`;
 };
+$("archive-json").onclick = () => {
+  if (archiveMode) window.location.href = `/api/snapshots/${archiveMode.id}/report`;
+};
+$("archive-open").onclick = openArchive;
+$("archive-live").onclick = returnToLive;
+$("archive-refresh").onclick = () => loadArchives(0);
+$("archive-previous").onclick = () => loadArchives(Math.max(0, archiveOffset - 20));
+$("archive-next").onclick = () => loadArchives(archiveOffset + 20);
+$("archive-select").onchange = () => {
+  $("archive-open").disabled = !$("archive-select").value;
+};
+loadArchives();
 for (const a of document.querySelectorAll("nav a"))
   a.onclick = () => {
     document.querySelector("nav a.active")?.classList.remove("active");

@@ -9,6 +9,7 @@ from sqlalchemy import (
     Column,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     String,
     Table,
@@ -56,6 +57,21 @@ class Store:
             unique=True,
             sqlite_where=self.raw.c.status == "accepted",
             postgresql_where=self.raw.c.status == "accepted",
+        )
+
+        self.snapshots = Table(
+            "snapshots",
+            self.meta,
+            Column("id", String(36), primary_key=True),
+            Column("created_at", String(32), nullable=False, index=True),
+            Column("format_version", String(32), nullable=False),
+            Column("policy_version", String(32), nullable=False),
+            Column("parameters_json", Text, nullable=False),
+            Column("semantic_fingerprint", String(64), nullable=False),
+            Column("report_json", LargeBinary, nullable=False),
+            Column("ledger_csv", LargeBinary, nullable=False),
+            Column("report_sha256", String(64), nullable=False),
+            Column("csv_sha256", String(64), nullable=False),
         )
 
     def initialize(self):
@@ -107,6 +123,42 @@ class Store:
                             "SELECT RAISE(ABORT, 'Квитанции неизменяемы'); END"
                         )
                     )
+
+            self._initialize_snapshot_guards(conn)
+
+    def _initialize_snapshot_guards(self, conn):
+        if self.postgres:
+            prefix = f'"{self.schema}".' if self.schema else ""
+            conn.execute(
+                text(f"""CREATE OR REPLACE FUNCTION {prefix}reject_snapshot_change()
+                RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+                RAISE EXCEPTION 'Архивные снимки неизменяемы'; END $$""")
+            )
+            table = prefix + "snapshots"
+            exists = conn.execute(
+                text(
+                    "SELECT 1 FROM pg_trigger WHERE tgname = 'immutable_snapshots' "
+                    "AND tgrelid = CAST(:table AS regclass)"
+                ),
+                {"table": table},
+            ).scalar()
+            if not exists:
+                conn.execute(
+                    text(
+                        f"CREATE TRIGGER immutable_snapshots BEFORE UPDATE OR DELETE "
+                        f"ON {table} FOR EACH ROW EXECUTE FUNCTION "
+                        f"{prefix}reject_snapshot_change()"
+                    )
+                )
+        else:
+            for action in ("UPDATE", "DELETE"):
+                conn.execute(
+                    text(
+                        f"CREATE TRIGGER IF NOT EXISTS immutable_snapshots_{action.lower()} "
+                        f"BEFORE {action} ON snapshots BEGIN "
+                        "SELECT RAISE(ABORT, 'Архивные снимки неизменяемы'); END"
+                    )
+                )
 
     def ingest(self, lines, *, source, received_at=None):
         if not isinstance(source, str) or not source.strip() or len(source) > 200:

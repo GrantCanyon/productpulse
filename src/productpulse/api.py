@@ -14,6 +14,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from productpulse.analytics import compare, report
 from productpulse.exports import ledger_csv
+from productpulse.snapshots import (
+    SnapshotIntegrityError,
+    SnapshotNotFound,
+    get_snapshot,
+    list_snapshots,
+    read_snapshot_bytes,
+)
 from productpulse.store import MAX_OFFSET, Store
 
 STATIC = Path(__file__).parent / "static"
@@ -80,6 +87,14 @@ def create_app(store=None):
     async def invalid(request, exc):
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
+    @app.exception_handler(SnapshotNotFound)
+    async def missing_archive(request, exc):
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(SnapshotIntegrityError)
+    async def corrupt_archive(request, exc):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
     @app.exception_handler(SQLAlchemyError)
     async def database_error(request, exc):
         return JSONResponse(
@@ -145,6 +160,38 @@ def create_app(store=None):
                 "X-Snapshot-Fingerprint": snapshot["fingerprint"],
             },
         )
+
+    @app.get("/api/snapshots")
+    def archive_list(
+        offset: int = Query(0, ge=0, le=MAX_OFFSET), limit: int = Query(20, ge=1, le=200)
+    ):
+        return list_snapshots(db, offset=offset, limit=limit)
+
+    @app.get("/api/snapshots/{snapshot_id}")
+    def archive_manifest(snapshot_id: str):
+        return get_snapshot(db, snapshot_id)
+
+    def archive_response(snapshot_id, format):
+        manifest, content = read_snapshot_bytes(db, snapshot_id, format=format)
+        filename = f"productpulse-{manifest['id']}.{format}"
+        return Response(
+            content=content,
+            media_type="application/json" if format == "json" else "text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "X-Snapshot-ID": manifest["id"],
+                "X-Content-SHA256": manifest["report_sha256" if format == "json" else "csv_sha256"],
+                "X-Snapshot-Fingerprint": manifest["semantic_fingerprint"],
+            },
+        )
+
+    @app.get("/api/snapshots/{snapshot_id}/report")
+    def archive_report(snapshot_id: str):
+        return archive_response(snapshot_id, "json")
+
+    @app.get("/api/snapshots/{snapshot_id}/ledger.csv")
+    def archive_csv(snapshot_id: str):
+        return archive_response(snapshot_id, "csv")
 
     @app.get("/", include_in_schema=False)
     def home():

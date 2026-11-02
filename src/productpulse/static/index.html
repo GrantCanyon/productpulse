@@ -24,7 +24,8 @@
         ><a href="#journey">▤ <span>Путь и удержание</span></a
         ><a href="#quality"
           >◇ <span>Качество данных</span><span id="quality-badge" class="badge">—</span></a
-        ><a href="#ledger">≡ <span>Журнал операций</span></a>
+        ><a href="#ledger">≡ <span>Журнал операций</span></a
+        ><a href="#archives">▧ <span>Архивные снимки</span></a>
       </nav>
       <div class="sidebar-bottom">
         <div class="live-dot"></div>
@@ -52,6 +53,56 @@
         >
           ↓ Журнал CSV
         </button>
+      </section>
+      <section id="archives" class="archive-tools" aria-label="Режим и архивные снимки">
+        <div class="archive-heading">
+          <span id="report-mode" class="mode-badge">Живой отчёт · пересчёт</span
+          ><span>Сохранённые результаты не меняются вместе с источниками</span>
+        </div>
+        <div class="archive-row">
+          <div class="archive-select-field">
+            <label for="archive-select">Архивный снимок</label
+            ><select id="archive-select">
+              <option value="">Загружаем список…</option>
+            </select>
+          </div>
+          <button id="archive-open" class="button secondary" disabled>Открыть архив</button>
+          <button id="archive-refresh" class="button small">Обновить список</button>
+          <button id="archive-live" class="button dark" hidden>К живому отчёту</button>
+        </div>
+        <div class="archive-list-footer">
+          <span id="archive-list-status" aria-live="polite"></span>
+          <div>
+            <button id="archive-previous" class="button small" disabled>←</button
+            ><button id="archive-next" class="button small" disabled>→</button>
+          </div>
+        </div>
+        <p class="archive-help">
+          Архив создаётся только командой snapshot-save в CLI. Здесь — просмотр и экспорт.
+          <a href="/docs#archive-reference">Как сохранить →</a>
+        </p>
+      </section>
+      <section
+        id="archive-banner"
+        class="archive-banner"
+        hidden
+        aria-label="Открытый архивный снимок"
+      >
+        <div class="archive-banner-heading">
+          <div><strong>Архивный снимок · без пересчёта</strong><code id="archive-id"></code></div>
+          <button id="archive-json" class="button secondary">↓ JSON архива</button>
+        </div>
+        <p id="archive-created"></p>
+        <p id="archive-parameters"></p>
+        <p>
+          Сохранённые JSON и CSV проверены по SHA-256. Архив содержит ссылки на события, но не
+          исходные доставки. Контрольная сумма не является цифровой подписью.
+        </p>
+        <details>
+          <summary>Контрольные суммы сохранённых байтов</summary>
+          <div>JSON<code id="archive-json-hash"></code></div>
+          <div>CSV<code id="archive-csv-hash"></code></div>
+        </details>
       </section>
       <form id="filters" class="filter-panel">
         <div class="filter-caption">

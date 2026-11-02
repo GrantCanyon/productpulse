@@ -103,6 +103,35 @@
           <code>missing_predecessor</code> может исчезнуть после доставки пропущенного бронирования.
         </p>
       </section>
+      <section class="panel" id="archive-reference">
+        <h2>Архивные снимки без пересчёта</h2>
+        <p>
+          Создание доступно только в CLI:
+          <code>productpulse snapshot-save --start 2026-01-05 --end 2026-03-02</code>. Укажите ту же
+          базу, что и у панели. Команда возвращает UUID и контрольные суммы.
+          <code>snapshot-list</code> перечисляет сохранения;
+          <code>snapshot-export UUID --format csv --output saved.csv</code> создаёт новый файл без
+          перезаписи.
+        </p>
+        <p>
+          GET <code>/api/snapshots</code> — список metadata с offset/limit;
+          <code>/api/snapshots/{id}</code> — проверенные сведения;
+          <code>/api/snapshots/{id}/report</code> — точные JSON-байты;
+          <code>/api/snapshots/{id}/ledger.csv</code> — точные CSV-байты. Ни один из этих методов не
+          запускает проектор отчёта.
+        </p>
+        <p>
+          Перед выдачей проверяются SHA-256 обоих артефактов. Заголовки X-Snapshot-ID,
+          X-Content-SHA256 и X-Snapshot-Fingerprint различают UUID, хеш точных байтов и смысловой
+          отпечаток. JSON — UTF-8 без BOM, CSV — UTF-8 с BOM и CRLF. Неизвестный UUID: 404; неверный
+          UUID: 400; повреждённое содержимое: 409. POST/DELETE не поддерживаются.
+        </p>
+        <p>
+          Архив не включает raw-журнал: ссылки на события не являются автономной копией исходников.
+          SHA-256 не является цифровой подписью. В панели архивный режим явно отделён от живого
+          отчёта.
+        </p>
+      </section>
       <section class="panel">
         <h2>Область фильтров и ошибки</h2>
         <p>

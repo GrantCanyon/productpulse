@@ -13,6 +13,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from productpulse.analytics import compare, report
 from productpulse.exports import ledger_csv
 from productpulse.simulator import generate, seed
+from productpulse.snapshots import (
+    SnapshotIntegrityError,
+    SnapshotNotFound,
+    export_snapshot,
+    list_snapshots,
+    save_snapshot,
+)
 from productpulse.store import Store
 
 
@@ -76,6 +83,7 @@ def parser():
         ("report", "Рассчитать снимок JSON"),
         ("export", "Вывести журнал оплат и отмен CSV"),
         ("compare", "Сравнить два исторических среза"),
+        ("snapshot-save", "Сохранить неизменяемые JSON и CSV отчёта"),
     ):
         sub = commands.add_parser(name, help=help_text)
         sub.add_argument("--start", required=True)
@@ -87,6 +95,17 @@ def parser():
             sub.add_argument("--after", required=True)
         else:
             sub.add_argument("--as-of")
+    archives = commands.add_parser("snapshot-list", help="Показать сохранённые архивные снимки")
+    archives.add_argument("--offset", type=int, default=0)
+    archives.add_argument("--limit", type=int, default=20)
+    archived_export = commands.add_parser(
+        "snapshot-export", help="Экспортировать точные байты архива"
+    )
+    archived_export.add_argument("id", help="UUID архивного снимка")
+    archived_export.add_argument("--format", choices=("json", "csv"), required=True)
+    archived_export.add_argument(
+        "--output", type=Path, required=True, help="Новый файл; перезапись запрещена"
+    )
     serve = commands.add_parser("serve", help="Открыть локальную панель и API")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8010)
@@ -123,6 +142,10 @@ def main(argv=None):
                     json.dump(scenario, file, ensure_ascii=False, indent=2)
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0 if output["reconciled"] else 1
+        elif args.command == "snapshot-list":
+            output = list_snapshots(db, offset=args.offset, limit=args.limit)
+        elif args.command == "snapshot-export":
+            output = export_snapshot(db, args.id, format=args.format, output=args.output)
         elif args.command == "serve":
             import uvicorn
 
@@ -132,7 +155,9 @@ def main(argv=None):
             return 0
         else:
             filters = {key: getattr(args, key) for key in ("start", "end", "channel", "category")}
-            if args.command == "compare":
+            if args.command == "snapshot-save":
+                output = save_snapshot(db, as_of=args.as_of, **filters)
+            elif args.command == "compare":
                 output = compare(db, before=args.before, after=args.after, **filters)
             else:
                 output = report(db, as_of=args.as_of, **filters)
@@ -146,7 +171,7 @@ def main(argv=None):
             f"Ошибка доступа к файлу: {exc.filename or 'проверьте путь и права'}", file=sys.stderr
         )
         return 2
-    except ValueError as exc:
+    except (ValueError, SnapshotNotFound, SnapshotIntegrityError) as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return 2
     except SQLAlchemyError:
