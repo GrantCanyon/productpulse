@@ -243,3 +243,10 @@ def test_http_refuses_corrupt_archive_without_returning_saved_payload(store):
         assert response.status_code == 409
         assert "SHA-256" in response.json()["detail"]
         assert b"corrupt-content" not in response.content
+
+
+def test_cli_invalid_database_url_returns_russian_error(capsys):
+    assert main(["--database", "invalid-url", "init"]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == "Ошибка базы данных: проверьте подключение и права доступа.\n"

@@ -114,8 +114,9 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
-    db = Store(args.database)
+    db = None
     try:
+        db = Store(args.database)
         db.initialize()
         if args.command == "init":
             output = {"status": "готово", "database": db.engine.dialect.name}
@@ -178,4 +179,5 @@ def main(argv=None):
         print("Ошибка базы данных: проверьте подключение и права доступа.", file=sys.stderr)
         return 2
     finally:
-        db.close()
+        if db is not None:
+            db.close()
